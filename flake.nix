@@ -52,6 +52,93 @@
           pyyaml
         ]);
 
+        # Python script for generating config (embedded in flake)
+        generateConfigScript = pkgs.writeText "generate-config.py" ''
+          #!/usr/bin/env python3
+          """Generate src/config.py from config.nix"""
+          import json
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          def eval_nix_config():
+              """Evaluate config.nix and return as JSON"""
+              try:
+                  result = subprocess.run(
+                      ["nix", "eval", "--json", "--impure", "--expr", "import ./config.nix"],
+                      capture_output=True,
+                      text=True,
+                      check=True
+                  )
+                  return json.loads(result.stdout)
+              except Exception as e:
+                  print(f"Error: {e}", file=sys.stderr)
+                  sys.exit(1)
+
+          def generate_python_config(cfg):
+              """Generate Python config from Nix config"""
+              return f'''# config.py - Auto-generated from config.nix
+"""Project Configuration"""
+import os
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).parent.parent
+DATA_DIR = PROJECT_ROOT / "{cfg['directories']['data']}"
+MODELS_DIR = PROJECT_ROOT / "{cfg['directories']['models']}"
+LOGS_DIR = PROJECT_ROOT / "{cfg['directories']['logs']}"
+CACHE_DIR = PROJECT_ROOT / "{cfg['directories']['cache']}"
+
+for d in [DATA_DIR, MODELS_DIR, LOGS_DIR, CACHE_DIR]:
+    d.mkdir(exist_ok=True)
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+BASE_MODEL = "{cfg['model']['baseModel']}"
+
+TRAINING_CONFIG = {{
+    "num_epochs": {cfg['training']['numEpochs']},
+    "batch_size": {cfg['training']['batchSize']},
+    "learning_rate": {cfg['training']['learningRate']},
+    "max_seq_length": {cfg['training']['maxSeqLength']},
+    "warmup_steps": {cfg['training']['warmupSteps']},
+    "save_steps": {cfg['training']['saveSteps']},
+    "logging_steps": {cfg['training']['loggingSteps']},
+}}
+
+LORA_CONFIG = {{
+    "r": {cfg['training']['lora']['r']},
+    "lora_alpha": {cfg['training']['lora']['loraAlpha']},
+    "lora_dropout": {cfg['training']['lora']['loraDropout']},
+    "target_modules": {cfg['training']['lora']['targetModules']},
+}}
+
+DATA_GENERATION_CONFIG = {{
+    "num_examples": {cfg['dataGeneration']['numExamples']},
+}}
+
+GENERATION_CONFIG = {{
+    "max_new_tokens": {cfg['inference']['maxNewTokens']},
+    "temperature": {cfg['inference']['temperature']},
+    "top_p": {cfg['inference']['topP']},
+    "repetition_penalty": {cfg['inference']['repetitionPenalty']},
+}}
+
+SYSTEM_PROMPT = """{cfg['systemPrompt']}"""
+
+CLI_CONFIG = {{
+    "name": "{cfg['cli']['name']}",
+}}
+'''
+
+          print("🔄 Generating src/config.py...")
+          cfg = eval_nix_config()
+          config_content = generate_python_config(cfg)
+          Path("src/config.py").write_text(config_content)
+          print("✅ Generated src/config.py")
+
+          if __name__ == "__main__":
+              pass
+        '';
+
         # Helper scripts as derivations
         makeScript = name: script: pkgs.writeShellScriptBin name ''
           set -e
@@ -69,7 +156,7 @@
             
             if [ ! -f "src/config.py" ]; then
               echo "📝 Generating src/config.py from config.nix..."
-              ${pythonEnv}/bin/python ${./scripts/generate-config.py}
+              ${pythonEnv}/bin/python ${generateConfigScript}
             fi
             
             echo "✅ Project initialized!"
