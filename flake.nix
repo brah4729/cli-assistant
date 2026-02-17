@@ -1,481 +1,238 @@
-# flake.nix
-# Pure nix develop workflow for AI CLI project
+# flake.nix - AI CLI with Personality 🤖
+# Fast, emotional AI companion using nix develop
+
 {
-  description = "AI CLI - Pure Nix Development Workflow";
+  description = "CodeBuddy - Your warm & fuzzy AI companion ❤️";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs {
-          inherit system;
-          config = {
-            allowUnfree = true;
-            cudaSupport = true;
-          };
+  outputs = { self, nixpkgs }:
+    let
+      system = "x86_64-linux";
+      pkgs = import nixpkgs {
+        inherit system;
+        config.allowUnfree = true;
+      };
+
+      # Load config if it exists
+      config = if builtins.pathExists ./config.nix
+        then import ./config.nix
+        else {
+          model.baseModel = "microsoft/phi-2";
+          cli.name = "codebuddy";
         };
 
-        # Project configuration loaded from config.nix
-        config = import ./config.nix;
+      # Python environment with all dependencies
+      python = pkgs.python311.withPackages (ps: with ps; [
+        # Core ML
+        torch-bin  # Faster than regular torch
+        transformers
+        accelerate
+        datasets
+        huggingface-hub
+        peft  # For LoRA fine-tuning
 
-        # Python with all ML dependencies
-        pythonEnv = pkgs.python311.withPackages (ps: with ps; [
-          # Core ML
-          torch-bin
-          transformers
-          accelerate
-          datasets
-          huggingface-hub
-          
-          # Data generation
-          google-generativeai
-          
-          # CLI
-          click
-          rich
-          prompt-toolkit
-          pyfiglet
-          
-          # Dev tools
-          ipython
-          black
-          pylint
-          pytest
-          
-          # Utils
-          numpy
-          tqdm
-          pyyaml
-        ]);
+        # CLI & UI
+        click
+        rich
+        prompt-toolkit
 
-        # Python script for generating config (embedded in flake)
-        generateConfigScript = pkgs.writeText "generate-config.py" ''
-          #!/usr/bin/env python3
-          """Generate src/config.py from config.nix"""
-          import json
-          import subprocess
-          import sys
-          from pathlib import Path
+        # Utilities
+        numpy
+        tqdm
+        pyyaml
+        pyfiglet
 
-          def eval_nix_config():
-              """Evaluate config.nix and return as JSON"""
-              try:
-                  result = subprocess.run(
-                      ["nix", "eval", "--json", "--impure", "--expr", "import ./config.nix"],
-                      capture_output=True,
-                      text=True,
-                      check=True
-                  )
-                  return json.loads(result.stdout)
-              except Exception as e:
-                  print(f"Error: {e}", file=sys.stderr)
-                  sys.exit(1)
+        # Development
+        black
+        pytest
+      ]);
 
-          def generate_python_config(cfg):
-              """Generate Python config from Nix config"""
-              return f'''# config.py - Auto-generated from config.nix
-"""Project Configuration"""
-import os
-from pathlib import Path
+      # Helper to make shell scripts
+      makeScript = name: text: pkgs.writeShellScriptBin name ''
+        set -e
+        cd "''${PRJ_ROOT:-$PWD}"
+        ${text}
+      '';
 
-PROJECT_ROOT = Path(__file__).parent.parent
-DATA_DIR = PROJECT_ROOT / "{cfg['directories']['data']}"
-MODELS_DIR = PROJECT_ROOT / "{cfg['directories']['models']}"
-LOGS_DIR = PROJECT_ROOT / "{cfg['directories']['logs']}"
-CACHE_DIR = PROJECT_ROOT / "{cfg['directories']['cache']}"
+      # CLI entry point
+      codebuddy = makeScript "codebuddy" ''
+        ${python}/bin/python -m src.cli "$@"
+      '';
 
-for d in [DATA_DIR, MODELS_DIR, LOGS_DIR, CACHE_DIR]:
-    d.mkdir(exist_ok=True)
+      # AI commands
+      ai-init = makeScript "ai-init" ''
+        echo "🚀 Setting up CodeBuddy..."
+        mkdir -p data models logs src .cache/{transformers,huggingface}
+        touch src/__init__.py
+        echo "✅ Ready to go! Run 'ai-help' for commands"
+      '';
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-BASE_MODEL = "{cfg['model']['baseModel']}"
+      ai-status = makeScript "ai-status" ''
+        echo "╔════════════════════════════════════════════════════╗"
+        echo "║              🤖 CodeBuddy Status                  ║"
+        echo "╚════════════════════════════════════════════════════╝"
+        echo ""
+        echo "📍 Location: $PWD"
+        echo "🐍 Python: $(${python}/bin/python --version)"
+        echo ""
+        if [ -f data/training_data.jsonl ]; then
+          count=$(wc -l < data/training_data.jsonl)
+          echo "📊 Training Data: ✅ $count examples"
+        else
+          echo "📊 Training Data: ❌ None (run 'ai-generate-data')"
+        fi
+        if [ -d models/final-model ]; then
+          echo "🤖 Model: ✅ Trained & Ready"
+        else
+          echo "🤖 Model: ❌ Not trained (run 'ai-train')"
+        fi
+        echo ""
+      '';
 
-TRAINING_CONFIG = {{
-    "num_epochs": {cfg['training']['numEpochs']},
-    "batch_size": {cfg['training']['batchSize']},
-    "learning_rate": {cfg['training']['learningRate']},
-    "max_seq_length": {cfg['training']['maxSeqLength']},
-    "warmup_steps": {cfg['training']['warmupSteps']},
-    "save_steps": {cfg['training']['saveSteps']},
-    "logging_steps": {cfg['training']['loggingSteps']},
-}}
+      ai-generate-data = makeScript "ai-generate-data" ''
+        echo "✨ Generating personality-rich training data..."
+        ${python}/bin/python -m src.data_generator "$@"
+      '';
 
-LORA_CONFIG = {{
-    "r": {cfg['training']['lora']['r']},
-    "lora_alpha": {cfg['training']['lora']['loraAlpha']},
-    "lora_dropout": {cfg['training']['lora']['loraDropout']},
-    "target_modules": {cfg['training']['lora']['targetModules']},
-}}
+      ai-train = makeScript "ai-train" ''
+        if [ ! -f data/training_data.jsonl ]; then
+          echo "❌ No training data! Run: ai-generate-data"
+          exit 1
+        fi
+        echo "🎓 Training CodeBuddy with personality..."
+        ${python}/bin/python -m src.trainer data/training_data.jsonl
+      '';
 
-DATA_GENERATION_CONFIG = {{
-    "num_examples": {cfg['dataGeneration']['numExamples']},
-}}
+      ai-chat = makeScript "ai-chat" ''
+        if [ ! -d models/final-model ]; then
+          echo "❌ No trained model! Run: ai-train first"
+          exit 1
+        fi
+        ${python}/bin/python -m src.cli chat
+      '';
 
-GENERATION_CONFIG = {{
-    "max_new_tokens": {cfg['inference']['maxNewTokens']},
-    "temperature": {cfg['inference']['temperature']},
-    "top_p": {cfg['inference']['topP']},
-    "repetition_penalty": {cfg['inference']['repetitionPenalty']},
-}}
+      ai-ask = makeScript "ai-ask" ''
+        if [ ! -d models/final-model ]; then
+          echo "❌ No trained model! Run: ai-train first"
+          exit 1
+        fi
+        ${python}/bin/python -m src.cli ask "$@"
+      '';
 
-SYSTEM_PROMPT = """{cfg['systemPrompt']}"""
+      ai-clean = makeScript "ai-clean" ''
+        echo "🧹 Cleaning up..."
+        rm -rf __pycache__ src/__pycache__ .cache
+        find . -name "*.pyc" -delete
+        echo "✅ Clean!"
+      '';
 
-CLI_CONFIG = {{
-    "name": "{cfg['cli']['name']}",
-}}
-'''
+      ai-help = makeScript "ai-help" ''
+        cat << 'HELP'
+╔════════════════════════════════════════════════════════════╗
+║                  🤖 CodeBuddy Commands                     ║
+╚════════════════════════════════════════════════════════════╝
 
-          print("🔄 Generating src/config.py...")
-          cfg = eval_nix_config()
-          config_content = generate_python_config(cfg)
-          Path("src/config.py").write_text(config_content)
-          print("✅ Generated src/config.py")
+🚀 Setup:
+   ai-init         Initialize project
+   ai-status       Show current status
 
-          if __name__ == "__main__":
-              pass
+📚 Development:
+   ai-generate-data  Generate training data with personality
+   ai-train          Train the model with your data
+   ai-chat           Chat with your trained AI
+   ai-ask "Q"        Ask a quick question
+
+🛠️ Maintenance:
+   ai-clean         Clean cache and temporary files
+   ai-help          Show this help
+
+💡 Quick Start:
+   nix develop       Enter development shell
+   ai-init          Setup project
+   ai-generate-data 50  # Generate 50 examples
+   ai-train         Train the model
+   ai-chat          Start chatting!
+
+📖 Documentation:
+   templates/training_data_template.md  # How to customize training data
+
+🎨 Customization:
+   - Edit data/training_data.jsonl to add your own examples
+   - Edit src/cli.py to change personality, moods, emojis
+   - Edit config.nix to adjust model settings
+
+HELP
+      '';
+
+      # Combine all scripts
+      allScripts = pkgs.symlinkJoin {
+        name = "ai-scripts";
+        paths = [
+          codebuddy
+          ai-init
+          ai-status
+          ai-generate-data
+          ai-train
+          ai-chat
+          ai-ask
+          ai-clean
+          ai-help
+        ];
+      };
+
+    in {
+      devShells.${system}.default = pkgs.mkShell {
+        buildInputs = [
+          python
+          allScripts
+          pkgs.git
+          pkgs.jq
+        ];
+
+        shellHook = ''
+          # Performance settings
+          export OMP_NUM_THREADS=8
+          export MKL_NUM_THREADS=8
+          export NUMEXPR_MAX_THREADS=8
+          export TORCH_NUM_WORKERS=4
+
+          # Project environment
+          export PRJ_ROOT="$PWD"
+          export PYTHONPATH="$PWD:$PYTHONPATH"
+          export TRANSFORMERS_CACHE="$PWD/.cache/transformers"
+          export HF_HOME="$PWD/.cache/huggingface"
+          export AI_MODEL_PATH="$PWD/models/final-model"
+
+          # Welcome banner
+          echo ""
+          echo "╔════════════════════════════════════════════════════╗"
+          echo "║                                                    ║"
+          echo "║    ◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤    ║"
+          echo "║   /                                                ║"
+          echo "║  │  ███████╗ ██████╗ ██████╗ ███████╗███╗   ███╗  ║"
+          echo "║  │  ██╔════╝██╔═══██╗██╔══██╗██╔════╝████╗ ████║  ║"
+          echo "║  │  █████╗  ██║   ██║██║  ██║█████╗  ██╔████╔██║  ║"
+          echo "║  │  ██╔══╝  ██║   ██║██║  ██║██╔══╝  ██║╚██╔╝██║  ║"
+          echo "║  │  ██║     ╚██████╔╝██████╔╝███████╗██║ ╚═╝ ██║  ║"
+          echo "║  │  ╚═╝      ╚═════╝ ╚═════╝ ╚══════╝╚═╝     ╚═╝  ║"
+          echo "║   \\                                               ║"
+          echo "║    ◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣    ║"
+          echo "║                                                    ║"
+          echo "╚════════════════════════════════════════════════════╝"
+          echo ""
+          echo "       Your warm & fuzzy AI companion ❤️"
+          echo ""
+
+          ai-status
+
+          echo ""
+          echo "💡 Type 'ai-help' for all commands!"
+          echo "📖 See templates/training_data_template.md for customization"
+          echo ""
         '';
-
-        # Helper scripts as derivations
-        makeScript = name: script: pkgs.writeShellScriptBin name ''
-          set -e
-          cd "$PRJ_ROOT"
-          ${script}
-        '';
-
-        # Development scripts
-        scripts = {
-          # Initialize project structure
-          ai-init = makeScript "ai-init" ''
-            echo "🚀 Initializing AI CLI project..."
-            mkdir -p data models logs src assets .cache/{transformers,huggingface}
-            touch src/__init__.py
-            
-            if [ ! -f "src/config.py" ]; then
-              echo "📝 Generating src/config.py from config.nix..."
-              ${pythonEnv}/bin/python ${generateConfigScript}
-            fi
-            
-            echo "✅ Project initialized!"
-            echo ""
-            echo "Next steps:"
-            echo "  1. export GEMINI_API_KEY='your-key'"
-            echo "  2. ai-generate-data"
-            echo "  3. ai-train"
-            echo "  4. ai-chat"
-          '';
-
-          # Generate training data
-          ai-generate-data = makeScript "ai-generate-data" ''
-            echo "📊 Generating training data..."
-            
-            if [ -z "$GEMINI_API_KEY" ]; then
-              echo "❌ GEMINI_API_KEY not set!"
-              echo "Set it with: export GEMINI_API_KEY='your-key'"
-              exit 1
-            fi
-            
-            ${pythonEnv}/bin/python generate_data.py "$@"
-          '';
-
-          # Train model
-          ai-train = makeScript "ai-train" ''
-            echo "🏋️  Training model..."
-            
-            if [ ! -f "data/training_data.jsonl" ]; then
-              echo "❌ No training data found!"
-              echo "Run: ai-generate-data"
-              exit 1
-            fi
-            
-            ${pythonEnv}/bin/python train_model.py "$@"
-          '';
-
-          # Test model
-          ai-test = makeScript "ai-test" ''
-            echo "🧪 Testing model..."
-            
-            if [ ! -d "models/final-model" ]; then
-              echo "❌ No trained model found!"
-              echo "Run: ai-train"
-              exit 1
-            fi
-            
-            ${pythonEnv}/bin/python test_model.py "$@"
-          '';
-
-          # Interactive chat
-          ai-chat = makeScript "ai-chat" ''
-            if [ ! -d "models/final-model" ]; then
-              echo "❌ No trained model found!"
-              echo "Run: ai-train first"
-              exit 1
-            fi
-            
-            ${pythonEnv}/bin/python -m src.cli chat "$@"
-          '';
-
-          # Quick ask
-          ai-ask = makeScript "ai-ask" ''
-            if [ -z "$1" ]; then
-              echo "Usage: ai-ask 'your question'"
-              exit 1
-            fi
-            
-            ${pythonEnv}/bin/python -m src.cli ask "$@"
-          '';
-
-          # Design personality
-          ai-design = makeScript "ai-design" ''
-            echo "🎨 Designing AI personality..."
-            ${pythonEnv}/bin/python design_personality.py
-          '';
-
-          # Test prompt
-          ai-test-prompt = makeScript "ai-test-prompt" ''
-            echo "🧪 Testing system prompt..."
-            ${pythonEnv}/bin/python test_prompt.py
-          '';
-
-          # Show project status
-          ai-status = makeScript "ai-status" ''
-            echo "📊 AI CLI Project Status"
-            echo "========================"
-            echo ""
-            
-            echo "📁 Project Root: $PRJ_ROOT"
-            echo ""
-            
-            echo "🔧 Configuration:"
-            echo "  Base Model: ${config.model.baseModel}"
-            echo "  Training Epochs: ${toString config.training.numEpochs}"
-            echo "  Batch Size: ${toString config.training.batchSize}"
-            echo ""
-            
-            echo "📊 Data:"
-            if [ -f "data/training_data.jsonl" ]; then
-              LINES=$(wc -l < data/training_data.jsonl)
-              echo "  ✅ Training data: $LINES examples"
-            else
-              echo "  ❌ No training data"
-            fi
-            echo ""
-            
-            echo "🤖 Model:"
-            if [ -d "models/final-model" ]; then
-              SIZE=$(du -sh models/final-model | cut -f1)
-              echo "  ✅ Trained model: $SIZE"
-            else
-              echo "  ❌ No trained model"
-            fi
-            echo ""
-            
-            echo "🔑 API Key:"
-            if [ -n "$GEMINI_API_KEY" ]; then
-              echo "  ✅ Set"
-            else
-              echo "  ❌ Not set"
-            fi
-            echo ""
-            
-            echo "🖥️  System:"
-            echo "  Python: $(${pythonEnv}/bin/python --version)"
-            echo "  CUDA: $(${pythonEnv}/bin/python -c 'import torch; print("Available" if torch.cuda.is_available() else "Not available")' 2>/dev/null || echo "N/A")"
-          '';
-
-          # Clean project
-          ai-clean = makeScript "ai-clean" ''
-            echo "🧹 Cleaning project..."
-            
-            read -p "Remove training data? (y/N) " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-              rm -rf data/*.jsonl data/*.json
-              echo "  ✓ Removed training data"
-            fi
-            
-            read -p "Remove trained models? (y/N) " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-              rm -rf models/
-              echo "  ✓ Removed models"
-            fi
-            
-            read -p "Remove cache? (y/N) " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-              rm -rf .cache/
-              echo "  ✓ Removed cache"
-            fi
-            
-            # Always clean Python artifacts
-            find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-            find . -type f -name "*.pyc" -delete 2>/dev/null || true
-            echo "  ✓ Removed Python artifacts"
-            
-            echo "✅ Cleaned!"
-          '';
-
-          # Show help
-          ai-help = makeScript "ai-help" ''
-            echo "🤖 AI CLI Development Commands"
-            echo "=============================="
-            echo ""
-            echo "🚀 Getting Started:"
-            echo "  ai-init              Initialize project structure"
-            echo "  ai-status            Show project status"
-            echo "  ai-design            Design AI personality (interactive)"
-            echo "  ai-test-prompt       Test system prompt"
-            echo ""
-            echo "📊 Data & Training:"
-            echo "  ai-generate-data     Generate training data"
-            echo "  ai-train             Train the model"
-            echo "  ai-test              Test model (interactive)"
-            echo "  ai-test --auto       Run automated tests"
-            echo ""
-            echo "💬 Using Your AI:"
-            echo "  ai-chat              Start interactive chat"
-            echo "  ai-ask 'question'    Ask a quick question"
-            echo ""
-            echo "🔧 Maintenance:"
-            echo "  ai-clean             Clean build artifacts"
-            echo "  ai-help              Show this help"
-            echo ""
-            echo "📝 Configuration:"
-            echo "  Edit config.nix to change AI personality, model, training params"
-            echo "  Changes take effect immediately in nix develop shell"
-            echo ""
-            echo "🔑 Environment Variables:"
-            echo "  GEMINI_API_KEY       API key for data generation (required)"
-            echo "  CUDA_VISIBLE_DEVICES GPU selection (optional)"
-            echo ""
-            echo "💡 Quick Start Example:"
-            echo "  export GEMINI_API_KEY='your-key-here'"
-            echo "  ai-init"
-            echo "  ai-generate-data"
-            echo "  ai-train"
-            echo "  ai-chat"
-          '';
-        };
-
-        # Combine all scripts
-        allScripts = pkgs.symlinkJoin {
-          name = "ai-cli-scripts";
-          paths = pkgs.lib.attrValues scripts;
-        };
-
-      in {
-        # Main development shell
-        devShells.default = pkgs.mkShell {
-          name = "ai-cli-dev";
-          
-          buildInputs = [
-            pythonEnv
-            allScripts
-            
-            # Build tools
-            pkgs.gcc
-            pkgs.git
-            
-            # CUDA (if available)
-            pkgs.cudaPackages.cudatoolkit
-            
-            # Nix tools
-            pkgs.nixpkgs-fmt
-            pkgs.alejandra
-            
-            # Utilities
-            pkgs.jq
-            pkgs.tree
-          ];
-          
-          shellHook = ''
-            # Set project root
-            export PRJ_ROOT="$(pwd)"
-            
-            # Python paths
-            export PYTHONPATH="$PRJ_ROOT:$PYTHONPATH"
-            export PYTHONUNBUFFERED=1
-            export PYTHONDONTWRITEBYTECODE=1
-            
-            # AI/ML paths
-            export TRANSFORMERS_CACHE="$PRJ_ROOT/.cache/transformers"
-            export HF_HOME="$PRJ_ROOT/.cache/huggingface"
-            export HF_HUB_CACHE="$PRJ_ROOT/.cache/huggingface/hub"
-            
-            # Configuration
-            export AI_CONFIG_FILE="$PRJ_ROOT/config.nix"
-            export BASE_MODEL="${config.model.baseModel}"
-            
-            # Create directories
-            mkdir -p .cache/{transformers,huggingface/hub}
-            
-            # Welcome message
-            echo ""
-            echo "╔════════════════════════════════════════════╗"
-            echo "║  🤖 AI CLI Development Environment       ║"
-            echo "╚════════════════════════════════════════════╝"
-            echo ""
-            echo "📍 Project: $PRJ_ROOT"
-            echo "🐍 Python: $(python --version)"
-            echo "🔧 Base Model: ${config.model.baseModel}"
-            echo ""
-            
-            # Check CUDA
-            if python -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
-              echo "🚀 CUDA: Available"
-            else
-              echo "💻 CUDA: Not available (CPU mode)"
-            fi
-            echo ""
-            
-            # Quick status
-            ai-status
-            
-            echo ""
-            echo "💡 Type 'ai-help' for available commands"
-            echo ""
-          '';
-        };
-
-        # Minimal shell for CI/CD
-        devShells.ci = pkgs.mkShell {
-          buildInputs = [ pythonEnv pkgs.git ];
-          shellHook = ''
-            export PYTHONPATH="$(pwd):$PYTHONPATH"
-            export TRANSFORMERS_CACHE=".cache/transformers"
-          '';
-        };
-
-        # Shell for data generation only
-        devShells.data = pkgs.mkShell {
-          buildInputs = [
-            pythonEnv
-            scripts.ai-generate-data
-            scripts.ai-status
-          ];
-          shellHook = ''
-            echo "📊 Data Generation Shell"
-            echo "Run: ai-generate-data"
-          '';
-        };
-
-        # Shell for training only
-        devShells.train = pkgs.mkShell {
-          buildInputs = [
-            pythonEnv
-            pkgs.cudaPackages.cudatoolkit
-            scripts.ai-train
-            scripts.ai-status
-          ];
-          shellHook = ''
-            echo "🏋️  Training Shell"
-            echo "Run: ai-train"
-          '';
-        };
-      }
-    );
+      };
+    };
 }
