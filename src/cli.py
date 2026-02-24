@@ -12,21 +12,157 @@ try:
     from rich.panel import Panel
     from rich.text import Text
     from rich.markdown import Markdown
+    from PIL import Image
+    import io
+    import base64
 except ImportError:
     print("Installing dependencies...")
     import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "click", "rich"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "click", "rich", "pillow"])
     import click
     from rich.console import Console
     from rich.panel import Panel
     from rich.text import Text
     from rich.markdown import Markdown
+    from PIL import Image
+    import io
+    import base64
 
 console = Console()
 
+# Banner image path
+BANNER_IMAGE_PATH = "/home/e/Downloads/ishmael7.png"
 
-# 🤖 ASCII Art Icon - Shows personality
-ICON_BANNER = """
+
+# 🤖 Image Banner - Shows personality
+def display_banner_image():
+    """Display the banner image using terminal graphics protocol."""
+    term = os.environ.get("TERM", "")
+
+    # Try to display image based on terminal
+    if "kitty" in term.lower():
+        # Try kitty icat first (most reliable)
+        if _display_kitty_icat():
+            return
+        _display_kitty_image()
+    elif "foot" in term.lower() or "xterm" in term.lower():
+        _display_sixel_image()
+    else:
+        # Fallback: try to use chafa if available
+        if _has_chafa():
+            _display_chafa_image()
+        else:
+            _display_fallback_text()
+
+
+def _display_kitty_icat():
+    """Display image using kitty +kitten icat (most reliable method)."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["kitty", "+kitten", "icat", "--align=center", BANNER_IMAGE_PATH],
+            capture_output=False,
+        )
+        print()
+        return True
+    except (FileNotFoundError, subprocess.SubprocessError):
+        return False
+
+
+def _display_kitty_image():
+    """Display image using Kitty graphics protocol."""
+    try:
+        img = Image.open(BANNER_IMAGE_PATH)
+
+        # Get terminal width and resize accordingly
+        import shutil
+        term_width = shutil.get_terminal_size().columns if shutil.get_terminal_size().columns > 0 else 80
+        # Reserve some margin
+        max_width = min(term_width - 4, 100)
+
+        if img.width > max_width:
+            ratio = max_width / img.width
+            new_height = int(img.height * ratio)
+            img = img.resize((max_width, new_height), Image.Resampling.LANCZOS)
+
+        # Save to bytes
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format="PNG")
+        img_data = img_bytes.getvalue()
+
+        # Kitty graphics protocol - chunk the data if needed
+        b64_data = base64.b64encode(img_data).decode()
+        width = img.width
+        height = img.height
+
+        # Use the standard Kitty graphics protocol escape sequence
+        # Format: ESC_Ga=T,f=100,t=d,w=W,h=H;DATAESC\
+        # We need to write directly to stdout, bypass rich's console
+        sys.stdout.write(f"\033_Ga=T,f=100,t=d,w={width},h={height};{b64_data}\033\\")
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+
+    except Exception as e:
+        # If anything fails, try fallback
+        _display_chafa_fallback()
+
+
+def _display_sixel_image():
+    """Display image using Sixel graphics (for foot and other sixel terminals)."""
+    try:
+        # Check if imagemagick convert is available
+        import subprocess
+
+        result = subprocess.run(["which", "convert"], capture_output=True, text=True)
+        if result.returncode != 0:
+            _display_chafa_fallback()
+            return
+
+        # Convert PNG to sixel and display
+        subprocess.run(
+            ["convert", BANNER_IMAGE_PATH, "-resize", "80x", "sixel:-"],
+            stdout=sys.stdout,
+        )
+        print()
+    except Exception:
+        _display_chafa_fallback()
+
+
+def _display_chafa_image():
+    """Display image using chafa (colored unicode blocks)."""
+    try:
+        import subprocess
+
+        subprocess.run(
+            ["chafa", "--symbols=block+braille", "--size=80", "--fill=scale", BANNER_IMAGE_PATH],
+            stdout=sys.stdout,
+        )
+        print()
+    except Exception:
+        _display_fallback_text()
+
+
+def _has_chafa() -> bool:
+    """Check if chafa is available."""
+    try:
+        import subprocess
+        result = subprocess.run(["which", "chafa"], capture_output=True)
+        return result.returncode == 0
+    except:
+        return False
+
+
+def _display_chafa_fallback():
+    """Try chafa as fallback."""
+    if _has_chafa():
+        _display_chafa_image()
+    else:
+        _display_fallback_text()
+
+
+def _display_fallback_text():
+    """Fallback text banner when image display fails."""
+    console.print("""
     ╔════════════════════════════════════════════════════╗
     ║                                                    ║
     ║    ◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤    ║
@@ -42,7 +178,11 @@ ICON_BANNER = """
     ║                                                    ║
     ╚════════════════════════════════════════════════════╝
         Your warm & fuzzy AI companion ❤️
-"""
+    """, style="bold cyan")
+
+
+# Keep old ASCII banner for compatibility
+ICON_BANNER = _display_fallback_text
 
 
 # Personality & Emotion Module
@@ -186,9 +326,9 @@ def cli(verbose):
 @cli.command()
 def banner():
     """Show the beautiful banner!"""
-    console.print(ICON_BANNER, style="bold cyan")
-    console.print("\n[yellow]Hey there! I'm CodeBuddy, your AI coding buddy! 🎉[/yellow]")
-    console.print("[green]I'm here to help you code, learn, and have fun![/green]")
+    display_banner_image()
+    console.print("\n[yellow]Really, now? So soon after work...? Well, it's not like I hate being the navigator of an adventure, though. [/yellow]")
+    console.print("[green]Ooh...! Oh, um... Ahem. Wonderful, let's get started[/green]")
     console.print("\n[dim]Type 'codebuddy chat' to start talking![/dim]")
 
 
@@ -199,7 +339,7 @@ def banner():
 @click.option("--temperature", type=float, default=0.7, help="Temperature")
 def ask(question, model, max_tokens, temperature):
     """Ask me a quick question!"""
-    console.print(ICON_BANNER, style="bold cyan")
+    display_banner_image()
 
     engine = ModelEngine(model)
     question_text = " ".join(question)
@@ -218,7 +358,7 @@ def ask(question, model, max_tokens, temperature):
 @click.option("--model", "-m", help="Model path", default=None)
 def chat(model):
     """Start an interactive chat session!"""
-    console.print(ICON_BANNER, style="bold cyan")
+    display_banner_image()
 
     engine = ModelEngine(model)
     history = []
@@ -257,7 +397,7 @@ def chat(model):
 @click.option("--data-file", "-d", default="data/training_data.jsonl", help="Training data file")
 def train(data_file):
     """Fine-tune the model with your data!"""
-    console.print(ICON_BANNER, style="bold cyan")
+    display_banner_image()
     console.print("\n[yellow]🎓 Training time! Let me learn from you![/yellow]\n")
 
     if not Path(data_file).exists():
@@ -280,7 +420,7 @@ def train(data_file):
 @click.option("--output", "-o", default="data/training_data.jsonl", help="Output file")
 def generate(num_examples, output):
     """Generate training data with personality!"""
-    console.print(ICON_BANNER, style="bold cyan")
+    display_banner_image()
     console.print(f"\n[yellow]✨ Creating {num_examples} personality-rich examples![/yellow]\n")
 
     try:

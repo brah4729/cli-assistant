@@ -5,7 +5,7 @@
   description = "CodeBuddy - Your warm & fuzzy AI companion ❤️";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
   };
 
   outputs = { self, nixpkgs }:
@@ -14,6 +14,8 @@
       pkgs = import nixpkgs {
         inherit system;
         config.allowUnfree = true;
+        config.cudaSupport = false;  # Disable CUDA support
+        config.rocmSupport = false;  # Disable AMD GPU support
       };
 
       # Load config if it exists
@@ -26,18 +28,21 @@
 
       # Python environment with all dependencies
       python = pkgs.python311.withPackages (ps: with ps; [
-        # Core ML
-        torch-bin  # Faster than regular torch
+        # Core ML - Override torch to disable CUDA
+        (ps.torch.override { cudaSupport = false; })
         transformers
         accelerate
-        datasets
+        # datasets  # REMOVE: Pulls in triton/CUDA deps
         huggingface-hub
-        peft  # For LoRA fine-tuning
+        # peft  # REMOVE: May pull in triton/CUDA deps
 
         # CLI & UI
         click
         rich
         prompt-toolkit
+
+        # Image support
+        pillow
 
         # Utilities
         numpy
@@ -190,6 +195,8 @@ HELP
           allScripts
           pkgs.git
           pkgs.jq
+          pkgs.chafa        # Terminal image display (unicode blocks)
+          pkgs.imagemagick  # Image conversion for Sixel terminals
         ];
 
         shellHook = ''

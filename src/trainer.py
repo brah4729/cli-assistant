@@ -121,12 +121,12 @@ def train_model(
     console.print("[cyan]📋 Preparing dataset...[/cyan]")
     prepared_dataset = prepare_dataset(dataset, tokenizer)
 
-    # Load model with 4-bit quantization for speed
-    console.print("[cyan]🤖 Loading model with 4-bit quantization...[/cyan]")
+    # Load model with CPU optimization (no CUDA)
+    console.print("[cyan]🤖 Loading model with CPU optimization...[/cyan]")
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype=torch.float16,
-        device_map="auto",
+        torch_dtype=torch.float32,  # Use float32 for CPU (float16 requires CUDA)
+        # device_map="cpu",  # DISABLED: Not needed, defaults to CPU
         trust_remote_code=True,
         # Use efficient loading for speed
         low_cpu_mem_usage=True,
@@ -143,7 +143,7 @@ def train_model(
         save_steps=100,
         save_total_limit=2,
         # Speed optimizations
-        fp16=True,  # Use mixed precision
+        # fp16=True,  # Use mixed precision - DISABLED: Requires CUDA GPU
         gradient_checkpointing=True,
         # Memory optimizations
         dataloader_num_workers=4,
