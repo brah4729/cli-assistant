@@ -78,7 +78,7 @@
       devShells.${system}.default = pkgs.mkShell {
         buildInputs = [
           python
-          codebuddy
+          info
           ai-generate-data
           ai-train
           ai-chat
@@ -86,6 +86,8 @@
           ai-clean
           ai-help
           pkgs.git
+          pkgs.chafa        # For terminal image display
+          pkgs.imagemagick  # For sixel image conversion
         ];
 
         shellHook = ''
@@ -94,7 +96,15 @@
           export TRANSFORMERS_CACHE="$PWD/.cache/transformers"
           export HF_HOME="$PWD/.cache/huggingface"
           export AI_MODEL_PATH="$PWD/models/final-model"
-          echo "CodeBuddy ready! Run: ai-help"
+          echo "CodeBuddy ready!"
+          echo ""
+          echo "Commands:"
+          echo "  ai-generate-data [N]  - Generate training data"
+          echo "  ai-train              - Train the model"
+          echo "  ai-chat               - Chat with CodeBuddy"
+          echo "  ai-ask 'question'     - Quick question"
+          echo ""
+          echo "To set a custom banner: codebuddy set-banner /path/to/image.png"
         '';
       };
     };

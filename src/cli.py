@@ -3,186 +3,35 @@
 
 import sys
 import os
-import time
 from pathlib import Path
 
 try:
     import click
     from rich.console import Console
     from rich.panel import Panel
-    from rich.text import Text
     from rich.markdown import Markdown
-    from PIL import Image
-    import io
-    import base64
 except ImportError:
     print("Installing dependencies...")
     import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "click", "rich", "pillow"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "click", "rich"])
     import click
     from rich.console import Console
     from rich.panel import Panel
-    from rich.text import Text
     from rich.markdown import Markdown
-    from PIL import Image
-    import io
-    import base64
+
+# Import banner module
+from .banner import display_image_banner, show_ascii_banner, set_banner
 
 console = Console()
 
-# Banner image path
-BANNER_IMAGE_PATH = "/home/e/Downloads/ishmael7.png"
 
-
-# 🤖 Image Banner - Shows personality
-def display_banner_image():
+def display_banner_image(image_path: str = None):
     """Display the banner image using terminal graphics protocol."""
-    term = os.environ.get("TERM", "")
-
-    # Try to display image based on terminal
-    if "kitty" in term.lower():
-        # Try kitty icat first (most reliable)
-        if _display_kitty_icat():
-            return
-        _display_kitty_image()
-    elif "foot" in term.lower() or "xterm" in term.lower():
-        _display_sixel_image()
-    else:
-        # Fallback: try to use chafa if available
-        if _has_chafa():
-            _display_chafa_image()
-        else:
-            _display_fallback_text()
-
-
-def _display_kitty_icat():
-    """Display image using kitty +kitten icat (most reliable method)."""
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["kitty", "+kitten", "icat", "--align=center", BANNER_IMAGE_PATH],
-            capture_output=False,
-        )
-        print()
-        return True
-    except (FileNotFoundError, subprocess.SubprocessError):
-        return False
-
-
-def _display_kitty_image():
-    """Display image using Kitty graphics protocol."""
-    try:
-        img = Image.open(BANNER_IMAGE_PATH)
-
-        # Get terminal width and resize accordingly
-        import shutil
-        term_width = shutil.get_terminal_size().columns if shutil.get_terminal_size().columns > 0 else 80
-        # Reserve some margin
-        max_width = min(term_width - 4, 100)
-
-        if img.width > max_width:
-            ratio = max_width / img.width
-            new_height = int(img.height * ratio)
-            img = img.resize((max_width, new_height), Image.Resampling.LANCZOS)
-
-        # Save to bytes
-        img_bytes = io.BytesIO()
-        img.save(img_bytes, format="PNG")
-        img_data = img_bytes.getvalue()
-
-        # Kitty graphics protocol - chunk the data if needed
-        b64_data = base64.b64encode(img_data).decode()
-        width = img.width
-        height = img.height
-
-        # Use the standard Kitty graphics protocol escape sequence
-        # Format: ESC_Ga=T,f=100,t=d,w=W,h=H;DATAESC\
-        # We need to write directly to stdout, bypass rich's console
-        sys.stdout.write(f"\033_Ga=T,f=100,t=d,w={width},h={height};{b64_data}\033\\")
-        sys.stdout.write("\n")
-        sys.stdout.flush()
-
-    except Exception as e:
-        # If anything fails, try fallback
-        _display_chafa_fallback()
-
-
-def _display_sixel_image():
-    """Display image using Sixel graphics (for foot and other sixel terminals)."""
-    try:
-        # Check if imagemagick convert is available
-        import subprocess
-
-        result = subprocess.run(["which", "convert"], capture_output=True, text=True)
-        if result.returncode != 0:
-            _display_chafa_fallback()
-            return
-
-        # Convert PNG to sixel and display
-        subprocess.run(
-            ["convert", BANNER_IMAGE_PATH, "-resize", "80x", "sixel:-"],
-            stdout=sys.stdout,
-        )
-        print()
-    except Exception:
-        _display_chafa_fallback()
-
-
-def _display_chafa_image():
-    """Display image using chafa (colored unicode blocks)."""
-    try:
-        import subprocess
-
-        subprocess.run(
-            ["chafa", "--symbols=block+braille", "--size=80", "--fill=scale", BANNER_IMAGE_PATH],
-            stdout=sys.stdout,
-        )
-        print()
-    except Exception:
-        _display_fallback_text()
-
-
-def _has_chafa() -> bool:
-    """Check if chafa is available."""
-    try:
-        import subprocess
-        result = subprocess.run(["which", "chafa"], capture_output=True)
-        return result.returncode == 0
-    except:
-        return False
-
-
-def _display_chafa_fallback():
-    """Try chafa as fallback."""
-    if _has_chafa():
-        _display_chafa_image()
-    else:
-        _display_fallback_text()
-
-
-def _display_fallback_text():
-    """Fallback text banner when image display fails."""
-    console.print("""
-    ╔════════════════════════════════════════════════════╗
-    ║                                                    ║
-    ║    ◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤◢◤    ║
-    ║   /                                                ║
-    ║  │  ███████╗ ██████╗ ██████╗ ███████╗███╗   ███╗  ║
-    ║  │  ██╔════╝██╔═══██╗██╔══██╗██╔════╝████╗ ████║  ║
-    ║  │  █████╗  ██║   ██║██║  ██║█████╗  ██╔████╔██║  ║
-    ║  │  ██╔══╝  ██║   ██║██║  ██║██╔══╝  ██║╚██╔╝██║  ║
-    ║  │  ██║     ╚██████╔╝██████╔╝███████╗██║ ╚═╝ ██║  ║
-    ║  │  ╚═╝      ╚═════╝ ╚═════╝ ╚══════╝╚═╝     ╚═╝  ║
-    ║   \\                                               ║
-    ║    ◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣◥◣    ║
-    ║                                                    ║
-    ╚════════════════════════════════════════════════════╝
-        Your warm & fuzzy AI companion ❤️
-    """, style="bold cyan")
-
-
-# Keep old ASCII banner for compatibility
-ICON_BANNER = _display_fallback_text
+    # Try custom banner first
+    if display_image_banner(image_path):
+        return
+    # Fallback to ASCII
+    show_ascii_banner()
 
 
 # Personality & Emotion Module
@@ -324,12 +173,24 @@ def cli(verbose):
 
 
 @cli.command()
-def banner():
+@click.option("--image", "-i", help="Path to custom banner image (PNG/JPG)")
+def banner(image):
     """Show the beautiful banner!"""
-    display_banner_image()
+    display_banner_image(image)
     console.print("\n[yellow]Really, now? So soon after work...? Well, it's not like I hate being the navigator of an adventure, though. [/yellow]")
     console.print("[green]Ooh...! Oh, um... Ahem. Wonderful, let's get started[/green]")
     console.print("\n[dim]Type 'codebuddy chat' to start talking![/dim]")
+
+
+@cli.command("set-banner")
+@click.argument("image_path")
+def set_banner_cmd(image_path):
+    """Set a custom banner image (PNG/JPG)."""
+    from .banner import set_banner
+    if set_banner(image_path):
+        console.print("[green]✅ Banner set successfully! Run 'codebuddy banner' to see it.[/green]")
+    else:
+        sys.exit(1)
 
 
 @cli.command()

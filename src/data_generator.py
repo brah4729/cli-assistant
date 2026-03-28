@@ -100,8 +100,8 @@ def generate_example(category: str) -> Dict[str, str]:
         return {"input": template["input"].format(task=task), "output": output}
 
     elif category == "quick_tip":
-        topic, tips, pro = random.choice(CONTENT_BANK["tips"])
-        output = template["output"].format(topic=topic, tips=tips, pro_tip=pro)
+        topic, tips, extra, pro = random.choice(CONTENT_BANK["tips"])
+        output = template["output"].format(topic=topic, tips=tips + "\n\n" + extra, pro_tip=pro)
         return {"input": template["input"].format(topic=topic), "output": output}
 
     elif category == "success_celebration":

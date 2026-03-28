@@ -17,6 +17,6 @@
 
   # CLI name
   cli = {
-    name = "codebuddy";
+    name = "cli-assitant";
   };
 }
