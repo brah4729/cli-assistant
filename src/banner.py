@@ -104,7 +104,7 @@ def _try_kitty_graphics(image_path: Path) -> bool:
 
         # Resize to reasonable width
         term_width = shutil.get_terminal_size().columns
-        max_width = min(term_width - 4, 80)
+        max_width = min(term_width - 10, 80)
 
         if img.width > max_width:
             ratio = max_width / img.width

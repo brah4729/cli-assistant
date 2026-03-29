@@ -78,7 +78,7 @@
       devShells.${system}.default = pkgs.mkShell {
         buildInputs = [
           python
-          info
+          codebuddy
           ai-generate-data
           ai-train
           ai-chat
